@@ -1,0 +1,1 @@
+import"https://static.zdassets.com/zendesk_app_framework_sdk/2.0/zaf_sdk.min.js";const e=document.querySelectorAll("button.alert");e.forEach(t=>{t.addEventListener("click",()=>{alert("Button was clicked!")})});

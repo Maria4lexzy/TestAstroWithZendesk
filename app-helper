@@ -1,0 +1,165 @@
+#!/bin/bash
+
+set -E
+trap 'fatal' ERR
+
+ENVIRONMENT="dev"
+RED="\033[0;31m"
+BOLD_RED="\033[1;31m"
+GREEN="\033[0;32m"
+YELLOW="\033[0;33m"
+NC="\033[0m"
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+EXECUTE_DIR=$(pwd)
+#Email for Zendesk log in
+EMAIL="maria.failli@sallinggroup.com"
+#Values for Gift Card App
+SANDBOX_APP_ID="879689"
+PROD_APP_ID="912692"
+APP_ID=$SANDBOX_APP_ID
+
+if [[ "$SCRIPT_DIR" != "$EXECUTE_DIR" ]]; then
+  echo "This script can only be run from within $SCRIPT_DIR"
+  exit 1
+fi
+
+function fatal() {
+  echo -e "${RED}Process failed.${NC}"
+  exit 1
+}
+
+function check_for_dotenv() {
+  if ! command -v dotenv >/dev/null; then
+    echo -e "dotenv isn't installed, attempting to install"
+    npm install -g dotenv
+  fi
+}
+
+echo -e "${GREEN}Welcome to Gift Card app helper tool.${NC}"
+if [[ "$1" == "prod" ]]; then
+    echo -e "${BOLD_RED}BRACE YOURSELF, using PROD as environment!!!${NC}"
+    ENVIRONMENT="prod"
+    APP_ID=$(sed -n 's/^APP_ID=\(.*\)/\1/p' < .env.production)
+else
+    echo -e "${YELLOW}⚠ No environment specified, defaulting to DEV.${NC}"
+    APP_ID=$(sed -n 's/^APP_ID=\(.*\)/\1/p' < .env.local)
+fi
+
+if [[ -z "$APP_ID" ]];
+then
+  echo -e "${BOLD_RED}⚠ APP_ID is not set, please set it up before trying to release!!!${NC}"
+fi
+
+echo -e "Choose an action:"
+
+function execute_build() {
+  check_for_dotenv
+  echo -e "Building application for ENV $ENVIRONMENT..."
+  if [[ "$ENVIRONMENT" != "prod" ]]; then
+    yarn build-dev
+    echo -e "${GREEN} ✓ ${NC} Build application"
+  else
+    yarn build
+    echo -e "${GREEN} ✓ ${NC} Build application"
+  fi
+}
+
+function move_assets() {
+  echo -e "Move required assets to member-app directory..."
+  npx gulp
+  echo -e "${GREEN} ✓ ${NC} Assets moved!"
+}
+
+function validate_and_package() {
+  check_for_dotenv
+  echo -e "Validating application..."
+  zcli apps:validate ./member-app
+  echo -e "${GREEN} ✓ ${NC} Application Valid!"
+  echo -e "Packing application..."
+  zcli apps:package ./member-app
+  echo -e "${GREEN} ✓ ${NC} Application Packaged!"
+}
+
+function start_dev_server() {
+  echo -e "${GREEN}ZCLI server started in a new terminal window.${NC}"
+  x-terminal-emulator -e "bash -c 'zcli apps:server ./member-app'" &
+}
+
+function prep_app_id(){
+  echo -e "Overriding zcli.apps.config.json file..."
+  echo "{ \"app_id\": ${APP_ID} }" > member-app/zcli.apps.config.json
+  echo -e "${GREEN} ✓ ${NC}zcli.apps.config.json file overridden!"
+}
+
+function release(){
+  if [[ -z "$APP_ID" ]];
+  then
+    echo -e "${RED}⚠ Release process failed because APP_ID wasn't set, please refer to the README file"
+  else
+    echo -e "${GREEN} ✓ ${NC} APP_ID is set: ${APP_ID}"
+    echo -e "Starting release process..."
+    zcli apps:update ./member-app
+    echo -e "${GREEN} ✓ ${NC} RELEASED"
+  fi
+}
+
+function set_subdomain(){
+  if [[ "$ENVIRONMENT" == "prod" ]]; then
+    echo "Setting subdomain in ZCLI to dsg"
+    zcli profiles:use dsg
+    echo -e "${GREEN} ✓ ${NC}Subdomain is setup for dsg.zendesk.com!"
+  else
+    echo "Setting subdomain in ZCLI to dsg1532333863"
+    zcli profiles:use dsg1532333863
+    echo -e "${GREEN} ✓ ${NC}Subdomain is setup for dsg1532333863.zendesk.com!"
+  fi
+}
+
+function zendesk_login(){
+  echo -e "Login to ZCLI"
+  echo -e "Email: ${EMAIL}/token"
+  if [[ "$ENVIRONMENT" == "prod" ]]; then
+    echo -e "USING ${BOLD_RED}PROD${NC}. Subdomain should be - ${BOLD_RED}dsg${NC}"
+  else
+    echo -e "Not production ENV, subdomain should be - ${GREEN}dsg1532333863${NC}"
+  fi
+  local ZCLI_LOGIN_RESPONSE=$(zcli login -i)
+  if [[ $ZCLI_LOGIN_RESPONSE == *"Failed to log in to your account:"* ]]; then
+    echo -e "${RED}Login failed."
+    exit 1
+  fi
+}
+
+
+select option in "Start Dev Server" "Build Only" "Build & Package" "Release" "Quit"
+do
+  case $option in
+    "Start Dev Server")
+      start_dev_server
+      ;;
+    "Build Only")
+      execute_build
+      move_assets
+      ;;
+    "Build & Package")
+      set_subdomain
+      execute_build
+      move_assets
+      validate_and_package
+      ;;
+    "Release")
+      zendesk_login
+      prep_app_id
+      execute_build
+      move_assets
+      validate_and_package
+      release
+      break
+      ;;
+    "Quit")
+      break
+      ;;
+  esac
+  # Set REPLY to empty to reprint the menu
+  REPLY=
+done

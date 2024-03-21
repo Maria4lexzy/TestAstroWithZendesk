@@ -1,0 +1,17 @@
+{
+  "name": "member-app",
+  "author": {
+    "name": "Maria F",
+    "email": "ds-integrations@sallinggroup.com",
+    "url": "https://sallinggroup.com"
+  },
+  "defaultLocale": "en",
+  "private": true,
+  "location": {
+    "support": {
+      "ticket_sidebar": "assets/index.html"
+    }
+  },
+  "version": "3.0",
+  "frameworkVersion": "2.0"
+}
